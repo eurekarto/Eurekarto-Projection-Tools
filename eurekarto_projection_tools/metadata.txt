@@ -1,0 +1,22 @@
+[general]
+name=Eurekarto Projection Tools
+qgisMinimumVersion=3.40
+qgisMaximumVersion=4.99
+version=1.0.2
+author=Blanche Lambert / Eurêkarto
+email=contact@eurekarto.com
+description=Cut vector layers at the antipodal meridian and build projection outlines.
+about=Created by Blanche Lambert for Eurêkarto in 2026. Includes Antimeridian Cutter and grid-based Projection Outline with English and French interfaces. Copyright © 2026 Blanche Lambert / Eurêkarto. GNU GPL v2 or later.
+homepage=https://github.com/eurekarto/Eurekarto-Projection-Tools
+repository=https://github.com/eurekarto/Eurekarto-Projection-Tools
+tracker=https://github.com/eurekarto/Eurekarto-Projection-Tools/issues
+category=Vector
+icon=img/icon.png
+experimental=False
+deprecated=False
+hasProcessingProvider=False
+license=GPL-2.0-or-later
+tags=projection,antimeridian,cartography,outline,Goode
+changelog=1.0.2 Contact and repository declared; the two long routines split into readable units; named constants for the polar limit, the parameter ranges and the symbol colours; version read from a single place; 24 unit tests added.
+    1.0.1 Qt 5 / Qt 6 compatibility: imports, scoped enums, dialog execution.
+    1.0.0 First release.
