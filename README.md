@@ -1,4 +1,4 @@
-# Eurekarto Projection Tools — 1.0.2
+# Eurekarto Projection Tools — 1.0.4
 
 © 2026 Blanche Lambert / Eurêkarto  
 Created by Blanche Lambert for Eurêkarto in 2026.  
@@ -8,9 +8,9 @@ Source and issues: https://github.com/eurekarto/Eurekarto-Projection-Tools
 
 ## Installation / Installation
 
-**Français** — Dans QGIS 3.40 LTR ou QGIS 4 : **Extensions → Installer/Gérer les extensions → Installer depuis un ZIP**. Sélectionnez `eurekarto_projection_tools-1_0_2.zip`, puis activez l’extension. Les deux outils apparaissent dans le menu **Extensions → Eurekarto Projection Tools** et dans la barre d’outils des extensions. Aucun paquet Python supplémentaire n’est nécessaire. Les algorithmes natifs de QGIS doivent être disponibles (extension Traitements activée).
+**Français** — Dans QGIS 3.40 LTR ou QGIS 4 : **Extensions → Installer/Gérer les extensions → Installer depuis un ZIP**. Sélectionnez `eurekarto_projection_tools-1_0_4.zip`, puis activez l’extension. Les deux outils apparaissent dans le menu **Extensions → Eurekarto Projection Tools** et dans la barre d’outils des extensions. Aucun paquet Python supplémentaire n’est nécessaire. Les algorithmes natifs de QGIS doivent être disponibles (extension Traitements activée).
 
-**English** — In QGIS 3.40 LTR or QGIS 4, use **Plugins → Manage and Install Plugins → Install from ZIP**, select `eurekarto_projection_tools-1_0_2.zip`, then enable the plugin. Both tools are available under **Plugins → Eurekarto Projection Tools** and in the plugins toolbar. No additional Python packages are required. Native QGIS algorithms must be available (Processing enabled).
+**English** — In QGIS 3.40 LTR or QGIS 4, use **Plugins → Manage and Install Plugins → Install from ZIP**, select `eurekarto_projection_tools-1_0_4.zip`, then enable the plugin. Both tools are available under **Plugins → Eurekarto Projection Tools** and in the plugins toolbar. No additional Python packages are required. Native QGIS algorithms must be available (Processing enabled).
 
 The ZIP contains exactly one root folder, `eurekarto_projection_tools`. For manual installation, copy that folder into the active QGIS profile's `python/plugins` directory and restart QGIS. The package supports installation on QGIS 3.40–3.x and QGIS 4.x. Runtime regression tests were run with QGIS 3.40.5; a QGIS 4 runtime was not available, so full execution on QGIS 4 remains to be verified.
 
@@ -30,7 +30,7 @@ Results are named `<Original layer name> Projection Tool` and placed in **New la
 
 ### Scope of the cut
 
-This removes a narrow strip; it is not a lossless split. Features entirely inside the strip disappear. The mask spans **−89.9° to +89.9°** (`POLAR_LIMIT` in `antimeridian.py`): a band reaching exactly ±90° can turn invalid once reprojected for display in an interrupted projection. Polar caps outside that range are therefore not cut, leaving an uncut residue 0.1° wide at each pole. Input longitudes are expected in the conventional −180°…+180° domain after reprojection. The tool does not unwrap geometries encoded in a 0°…360° domain or infer intended great-circle paths. It cuts one antipodal meridian, not all the internal seams of an interrupted projection. Densification applies to the mask's vertical edges, not every source geometry edge. Source features with sparse vertices may need separate densification before reprojection.
+This removes a narrow strip; it is not a lossless split. Features entirely inside the strip disappear. The displayed mask spans **−89.9° to +89.9°** (`POLAR_LIMIT` in `antimeridian.py`): a band reaching exactly ±90° can turn invalid once reprojected for display in an interrupted projection. The cut itself also removes the two polar caps beyond that limit. Left in place, a cap would bridge the two sides of the band: harmless in a cylindrical projection, where a pole is a line along the map edge, but in a conic or azimuthal projection a pole becomes a point or recedes to infinity, and a feature around it — Antarctica in a projection centred on Europe — closes into a ring that covers the whole map. Features lose the 0.1° nearest each pole, which is invisible at any scale where the poles are shown. The caps carry a vertex at every grid step along their parallel, like the band along its meridian: reprojection moves vertices only, so an edge spanning 360° of longitude with two vertices would become a straight chord across the map. Input longitudes are expected in the conventional −180°…+180° domain after reprojection. The tool does not unwrap geometries encoded in a 0°…360° domain or infer intended great-circle paths. It cuts one antipodal meridian, not all the internal seams of an interrupted projection. Densification applies to the mask's vertical edges, not every source geometry edge. Source features with sparse vertices may need separate densification before reprojection.
 
 The optional display mask crosses the projection seam by design; in some projections its display may be distorted. It is a diagnostic layer, not a projection-domain outline. Use Projection Outline for that purpose.
 
@@ -94,13 +94,15 @@ The implementation follows the [QGIS 3.40 plugin structure](https://docs.qgis.or
 
 ## Checks run on this package
 
-- **Unit tests** — 24 tests covering longitude normalisation, central meridian detection (`+lon_0`, UTM zone, geographic CRS, shifted prime meridian, unreadable projection), the antipodal band and its wrap at ±180°, mask latitudes, parameter bounds, and grid cell rejection. They run without QGIS, on minimal stand-ins: `python3 test_projection_tools.py`.
+- **Unit tests** — 31 tests, three of them replaying a conic projection centred on Europe with PROJ when `shapely` and `pyproj` are installed — reprojecting vertex by vertex, without densifying, as QGIS does — covering longitude normalisation, central meridian detection (`+lon_0`, UTM zone, geographic CRS, shifted prime meridian, unreadable projection), the antipodal band and its wrap at ±180°, mask latitudes, parameter bounds, and grid cell rejection. They run without QGIS, on minimal stand-ins: `python3 test_projection_tools.py`.
 - **Static analysis** — `pyflakes` and `flake8` (lines ≤ 100 characters, complexity ≤ 12) report nothing.
 - **Translations** — 49 strings, every displayed label present in both catalogs, none unused.
 - **Not verified** — execution inside QGIS 4, and any behaviour depending on native algorithms. Test on a real project before distribution.
 
 ## Changelog
 
+- **1.0.4** — Polar caps densified along their parallel; 1.0.3 still let Antarctica cover the map in a conic projection.
+- **1.0.3** — The cut also removes both polar caps, so Antarctica no longer covers the map in conic or azimuthal projections centred away from the date line.
 - **1.0.2** — Contact and repository declared. The two long routines split into readable units; named constants for the polar limit, the parameter ranges and the symbol colours; the version number read from a single place; unit tests added. No change to what the tools produce.
 - **1.0.1** — Qt 5 / Qt 6 compatibility: imports, scoped enums, dialog execution.
 - **1.0.0** — First release.

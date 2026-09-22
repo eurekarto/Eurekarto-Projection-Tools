@@ -12,13 +12,14 @@ except ImportError:  # Qt 5
     from qgis.PyQt.QtWidgets import QAction
 from qgis.core import (Qgis, QgsFillSymbol, QgsLineSymbol, QgsMessageLog, QgsProcessingContext,
                        QgsProcessingException, QgsProject, QgsVectorLayer)
-from .antimeridian import central_meridian, create_mask, cut_layer, normalize_longitude
+from .antimeridian import (central_meridian, create_mask, cut_layer, cutting_mask,
+                           normalize_longitude)
 from .common import Cancelled, check_cancel, run, tr, validate_crs
 from .dialogs.antimeridian_dialog import AntimeridianDialog
 from .dialogs.outline_dialog import OutlineDialog
 from .outline import projection_outline
 
-VERSION = '1.0.2'
+VERSION = '1.0.4'
 # Layer tree group receiving every output. Kept untranslated on purpose: it is
 # looked up by name, and a language change must not orphan an existing group.
 OUTPUT_GROUP = 'New layers'
@@ -182,7 +183,8 @@ class EurekartoProjectionTools:
             feedback.pushInfo(tr('Central meridian: {0}°; antipodal meridian: {1}°.')
                               .format(meridian, antipode))
             mask = create_mask(antipode, dialog.width.value(), dialog.step.value())
-            completed, failed = self.cut_all(dialog, layers, mask, target, context, feedback)
+            cutting = cutting_mask(mask, dialog.step.value())
+            completed, failed = self.cut_all(dialog, layers, cutting, target, context, feedback)
             outputs = [output for _, output in completed]
             if completed and dialog.add_mask.isChecked():
                 display = self.mask_display_layer(dialog, mask, target, antipode,

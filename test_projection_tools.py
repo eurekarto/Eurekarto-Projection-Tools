@@ -85,7 +85,7 @@ def install_stubs():
 
     core.QgsGeometry = QgsGeometry
     for name in ('QgsCoordinateReferenceSystem', 'QgsCoordinateTransform', 'QgsFeature',
-                 'QgsVectorLayer'):
+                 'QgsVectorLayer', 'QgsRectangle'):
         setattr(core, name, type(name, (object,), {}))
 
     qgis.core = core
@@ -214,7 +214,7 @@ class GridCells(unittest.TestCase):
 
 
 class MaskLatitudes(unittest.TestCase):
-    """The mask stops short of the poles; the residue must stay what it claims."""
+    """The displayed mask stops short of the poles; the caps are cut separately."""
 
     def latitudes(self, step):
         span = 2 * antimeridian.POLAR_LIMIT
@@ -233,8 +233,87 @@ class MaskLatitudes(unittest.TestCase):
             latitudes = self.latitudes(step)
             self.assertNotEqual(latitudes[-1], latitudes[-2])
 
-    def test_the_uncut_polar_residue_is_a_tenth_of_a_degree(self):
+    def test_the_displayed_mask_stops_a_tenth_of_a_degree_from_each_pole(self):
         self.assertAlmostEqual(90.0 - antimeridian.POLAR_LIMIT, 0.1, 9)
+
+
+class PolarCaps(unittest.TestCase):
+    """Both caps beyond the polar limit are cut away with the band."""
+
+    def test_the_caps_run_from_the_limit_to_the_poles(self):
+        self.assertEqual(antimeridian.polar_caps(),
+                         [(-90.0, -antimeridian.POLAR_LIMIT), (antimeridian.POLAR_LIMIT, 90.0)])
+
+    def test_a_cap_ring_is_closed_and_spans_every_longitude(self):
+        ring = antimeridian.cap_ring(-90.0, -antimeridian.POLAR_LIMIT, 0.5)
+        self.assertEqual(ring[0], ring[-1])
+        longitudes = [x for x, _ in ring]
+        self.assertEqual((min(longitudes), max(longitudes)), (-180.0, 180.0))
+
+    def test_a_cap_ring_carries_a_vertex_at_least_every_step(self):
+        ring = antimeridian.cap_ring(-90.0, -antimeridian.POLAR_LIMIT, 0.7)
+        north_edge = [x for x, y in ring[:len(ring) // 2]]
+        gaps = [second - first for first, second in zip(north_edge, north_edge[1:])]
+        self.assertLessEqual(max(gaps), 0.7 + 1e-9)
+
+    def test_band_and_caps_leave_no_gap_between_them(self):
+        # The band spans -POLAR_LIMIT..POLAR_LIMIT; the caps must start exactly there.
+        south, north = antimeridian.polar_caps()
+        self.assertEqual(south[1], -antimeridian.POLAR_LIMIT)
+        self.assertEqual(north[0], antimeridian.POLAR_LIMIT)
+
+
+try:
+    from pyproj import Transformer
+    from shapely.geometry import Point as ShapelyPoint, Polygon, box
+    from shapely.ops import transform, unary_union
+    GEOMETRY_LIBRARIES = True
+except ImportError:
+    GEOMETRY_LIBRARIES = False
+
+
+@unittest.skipUnless(GEOMETRY_LIBRARIES, 'needs shapely and pyproj')
+class ConicProjection(unittest.TestCase):
+    """The reported case, replayed with PROJ: Antarctica in a conic centred on Europe.
+
+    The geometry is reprojected vertex by vertex and never densified on the way,
+    exactly as QGIS's reprojection does: an earlier version of this test densified
+    it first, and so passed while the plugin still failed.
+    """
+
+    central = 10.0
+
+    def cut(self, caps):
+        antipode = antimeridian.normalize_longitude(self.central + 180.0)
+        limit = antimeridian.POLAR_LIMIT
+        parts = [box(left, -limit, right, limit)
+                 for left, right in antimeridian.mask_intervals(antipode, 0.1)]
+        parts += caps
+        longitudes = [-180.0 + index for index in range(361)]
+        antarctica = Polygon([(x, -65.0) for x in longitudes]
+                             + [(x, -90.0) for x in reversed(longitudes)])
+        return antarctica.difference(unary_union(parts))
+
+    def covers_paris(self, geometry):
+        to_map = Transformer.from_crs(
+            'EPSG:4326', '+proj=lcc +lat_1=35 +lat_2=65 +lat_0=52 +lon_0={0} '
+            '+datum=WGS84'.format(self.central), always_xy=True).transform
+        projected = transform(to_map, geometry).buffer(0)
+        return projected.contains(transform(to_map, ShapelyPoint(2.35, 48.85)))
+
+    def test_the_band_alone_leaves_antarctica_covering_europe(self):
+        self.assertTrue(self.covers_paris(self.cut([])))
+
+    def test_caps_with_four_corners_still_cover_europe(self):
+        # The 1.0.3 defect: an edge of 360 degrees carried by two vertices becomes
+        # a straight chord once projected.
+        caps = [box(-180.0, south, 180.0, north) for south, north in antimeridian.polar_caps()]
+        self.assertTrue(self.covers_paris(self.cut(caps)))
+
+    def test_the_plugin_densified_caps_free_europe(self):
+        caps = [Polygon(antimeridian.cap_ring(south, north, 0.5))
+                for south, north in antimeridian.polar_caps()]
+        self.assertFalse(self.covers_paris(self.cut(caps)))
 
 
 if __name__ == '__main__':

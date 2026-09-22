@@ -2,7 +2,7 @@
 name=Eurekarto Projection Tools
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-version=1.0.2
+version=1.0.4
 author=Blanche Lambert, Eurêkarto
 email=contact@eurekarto.com
 description=Cut vector layers at the antipodal meridian and build projection outlines.
@@ -17,6 +17,8 @@ deprecated=False
 hasProcessingProvider=False
 license=GPL-2.0-or-later
 tags=projection,antimeridian,cartography,outline,Goode
-changelog=1.0.2 Contact and repository declared; the two long routines split into readable units; named constants for the polar limit, the parameter ranges and the symbol colours; version read from a single place; 24 unit tests added.
+changelog=1.0.4 The polar caps are densified along their parallel, like the band along its meridian. In 1.0.3 each cap edge spanned 360 degrees of longitude with two vertices, which reprojection turned into a straight chord, so Antarctica could still cover the map in a conic projection.
+    1.0.3 The cut now also removes both polar caps. Left in place, a cap bridged the two sides of the band, and in a conic or azimuthal projection centred away from the date line Antarctica closed into a ring covering the whole map.
+    1.0.2 Contact and repository declared; the two long routines split into readable units; named constants for the polar limit, the parameter ranges and the symbol colours; version read from a single place; 24 unit tests added.
     1.0.1 Qt 5 / Qt 6 compatibility: imports, scoped enums, dialog execution.
     1.0.0 First release.

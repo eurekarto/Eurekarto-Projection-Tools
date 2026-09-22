@@ -42,9 +42,12 @@ def central_meridian(crs):
         tr('The central meridian could not be detected. Enable the manual override.'))
 
 
-# The mask stops short of the poles: a band reaching exactly ±90° can produce an
-# invalid geometry once reprojected for display in an interrupted projection.
-# The uncut residue is therefore POLAR_LIMIT degrees wide at each pole.
+# The displayed mask stops short of the poles: a band reaching exactly ±90° can
+# produce an invalid geometry once reprojected for display in an interrupted
+# projection. The cut itself also removes both polar caps beyond that limit: left
+# in place, a cap bridges the two sides of the band, and in a conic or azimuthal
+# projection — where a pole becomes a point or recedes to infinity — Antarctica
+# then closes into a ring that wraps around the whole map.
 POLAR_LIMIT = 89.9
 MINIMUM_HALF_WIDTH, MAXIMUM_HALF_WIDTH = 0.000001, 20.0
 MINIMUM_STEP, MAXIMUM_STEP = 0.05, 10.0
@@ -77,6 +80,47 @@ def create_mask(antipode, half_width=0.1, step=0.5):
         feature.setGeometry(QgsGeometry.fromPolygonXY([ring]))
         if not layer.dataProvider().addFeature(feature):
             raise QgsProcessingException(tr('Could not create the mask.'))
+    layer.updateExtents()
+    return layer
+
+
+def polar_caps():
+    """The two latitude intervals beyond POLAR_LIMIT, south then north."""
+    return [(-90.0, -POLAR_LIMIT), (POLAR_LIMIT, 90.0)]
+
+
+def cap_ring(south, north, step):
+    """A polar cap as a closed ring, with a vertex every step degrees of longitude.
+
+    Reprojection moves vertices and nothing else: an edge spanning 360° of
+    longitude with two vertices becomes a straight chord across the map, and the
+    feature cut against it inherits that chord. Densified like the band, the edge
+    follows its parallel.
+    """
+    count = math.ceil(360.0 / step)
+    longitudes = [-180.0 + min(index * step, 360.0) for index in range(count + 1)]
+    ring = [(longitude, north) for longitude in longitudes]
+    ring += [(longitude, south) for longitude in reversed(longitudes)]
+    ring.append(ring[0])
+    return ring
+
+
+def cutting_mask(mask, step=0.5):
+    """The displayed band plus both polar caps: what the layers are actually cut with.
+
+    Cutting along the band alone leaves each polar cap joining the two sides of
+    the cut, so a feature around a pole stays in one piece across the date line.
+    """
+    bounded(step, MINIMUM_STEP, MAXIMUM_STEP)
+    layer = QgsVectorLayer('Polygon?crs=EPSG:4326', tr('Antipodal mask'), 'memory')
+    features = [QgsFeature(feature) for feature in mask.getFeatures()]
+    for south, north in polar_caps():
+        cap = QgsFeature()
+        cap.setGeometry(QgsGeometry.fromPolygonXY(
+            [[QgsPointXY(x, y) for x, y in cap_ring(south, north, step)]]))
+        features.append(cap)
+    if not layer.dataProvider().addFeatures(features)[0]:
+        raise QgsProcessingException(tr('Could not create the mask.'))
     layer.updateExtents()
     return layer
 
