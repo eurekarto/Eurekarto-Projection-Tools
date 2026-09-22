@@ -16,10 +16,13 @@ from .antimeridian import (central_meridian, create_mask, cut_layer, cutting_mas
                            normalize_longitude)
 from .common import Cancelled, check_cancel, run, tr, validate_crs
 from .dialogs.antimeridian_dialog import AntimeridianDialog
+from .dialogs.auto_dialog import AutoDialog
+from .dialogs.horizon_dialog import HorizonDialog
 from .dialogs.outline_dialog import OutlineDialog
+from .masks import clip_to_horizon, cut_along_tears, horizon_mask, tear_mask
 from .outline import projection_outline
 
-VERSION = '1.0.4'
+VERSION = '1.1.0'
 # Layer tree group receiving every output. Kept untranslated on purpose: it is
 # looked up by name, and a language change must not orphan an existing group.
 OUTPUT_GROUP = 'New layers'
@@ -51,6 +54,8 @@ class EurekartoProjectionTools:
         icon = QIcon(str(self.directory / 'img' / 'icon.png'))
         for title, callback, on_toolbar in [
                 ('Antimeridian Cutter', self.show_cutter, True),
+                ('Auto Cutter', self.show_auto, True),
+                ('Horizon Cutter', self.show_horizon, True),
                 ('Projection Outline', self.show_outline, True),
                 ('About', self.about, False)]:
             action = QAction(icon, tr(title), self.iface.mainWindow())
@@ -86,6 +91,12 @@ class EurekartoProjectionTools:
 
     def show_cutter(self):
         self.show(AntimeridianDialog, self.execute_cutter)
+
+    def show_auto(self):
+        self.show(AutoDialog, self.execute_auto)
+
+    def show_horizon(self):
+        self.show(HorizonDialog, self.execute_horizon)
 
     def show_outline(self):
         self.show(OutlineDialog, self.execute_outline)
@@ -133,14 +144,14 @@ class EurekartoProjectionTools:
             raise QgsProcessingException(tr('Select a valid spatial vector layer.'))
         return layers
 
-    def cut_all(self, dialog, layers, mask, target, context, feedback):
-        """Cut every layer, keeping going after a failure: (completed pairs, failed names)."""
+    def cut_all(self, dialog, layers, mask, target, context, feedback, operation=cut_layer):
+        """Apply the operation to every layer, keeping going after a failure."""
         completed, failed = [], []
         for index, layer in enumerate(layers):
             check_cancel(feedback)
             feedback.pushInfo(layer.name())
             try:
-                completed.append((layer, cut_layer(layer, mask, target, context, feedback)))
+                completed.append((layer, operation(layer, mask, target, context, feedback)))
             except Cancelled:
                 raise
             except Exception as error:
@@ -185,24 +196,66 @@ class EurekartoProjectionTools:
             mask = create_mask(antipode, dialog.width.value(), dialog.step.value())
             cutting = cutting_mask(mask, dialog.step.value())
             completed, failed = self.cut_all(dialog, layers, cutting, target, context, feedback)
-            outputs = [output for _, output in completed]
-            if completed and dialog.add_mask.isChecked():
-                display = self.mask_display_layer(dialog, mask, target, antipode,
-                                                  context, feedback)
-                if display is not None:
-                    outputs.append(display)
-            check_cancel(feedback)
-            if outputs:
-                self.publish(outputs, project)
-                if dialog.hide_originals.isChecked():
-                    self.hide_layers(project, [original for original, _ in completed])
-            feedback.pushInfo(tr('Completed: {0}; failed: {1}.')
-                              .format(len(completed), len(failed)))
-            if failed:
-                feedback.pushInfo(tr('Failed layers: {0}').format(', '.join(failed)))
-            if completed:
-                feedback.pushInfo(
-                    tr('Export temporary outputs to keep them after closing QGIS.'))
+            self.publish_results(dialog, project, completed, failed, mask, target, antipode,
+                                 context, feedback)
+        except Cancelled:
+            feedback.pushInfo(tr('Cancelled. No results from this run were added.'))
+        except Exception as error:
+            self.error(dialog, error)
+
+    def publish_results(self, dialog, project, completed, failed, mask, target,
+                        antipode, context, feedback):
+        """Add the results, the mask if asked for, and report what happened."""
+        outputs = [output for _, output in completed]
+        if completed and dialog.add_mask.isChecked():
+            display = self.mask_display_layer(dialog, mask, target, antipode, context, feedback)
+            if display is not None:
+                outputs.append(display)
+        check_cancel(feedback)
+        if outputs:
+            self.publish(outputs, project)
+            if dialog.hide_originals.isChecked():
+                self.hide_layers(project, [original for original, _ in completed])
+        feedback.pushInfo(tr('Completed: {0}; failed: {1}.')
+                          .format(len(completed), len(failed)))
+        if failed:
+            feedback.pushInfo(tr('Failed layers: {0}').format(', '.join(failed)))
+        if completed:
+            feedback.pushInfo(tr('Export temporary outputs to keep them after closing QGIS.'))
+
+    # ------------------------------------------------------------------- auto tool
+
+    def execute_auto(self, dialog):
+        feedback = dialog.feedback
+        try:
+            project, context = self.context()
+            target = project.crs()
+            layers = self.chosen_layers(dialog, project)
+            mask = tear_mask(target, dialog.step.value(), dialog.factor.value(),
+                             context, feedback)
+            completed, failed = self.cut_all(dialog, layers, mask, target, context, feedback,
+                                             cut_along_tears)
+            self.publish_results(dialog, project, completed, failed, mask, target, 0.0,
+                                 context, feedback)
+        except Cancelled:
+            feedback.pushInfo(tr('Cancelled. No results from this run were added.'))
+        except Exception as error:
+            self.error(dialog, error)
+
+    # ---------------------------------------------------------------- horizon tool
+
+    def execute_horizon(self, dialog):
+        feedback = dialog.feedback
+        try:
+            project, context = self.context()
+            target = project.crs()
+            layers = self.chosen_layers(dialog, project)
+            mask = horizon_mask(dialog.latitude.value(), dialog.longitude.value(),
+                                dialog.radius.value(), dialog.step.value(), feedback)
+            completed, failed = self.cut_all(dialog, layers, mask, target, context, feedback,
+                                             clip_to_horizon)
+            self.publish_results(dialog, project, completed, failed, mask, target,
+                                 dialog.longitude.value(), context, feedback)
         except Cancelled:
             feedback.pushInfo(tr('Cancelled. No results from this run were added.'))
         except Exception as error:

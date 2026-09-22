@@ -11,7 +11,7 @@ import math
 import re
 from qgis.core import (QgsCoordinateReferenceSystem, QgsFeature, QgsGeometry,
                        QgsPointXY, QgsProcessingException, QgsVectorLayer, Qgis)
-from .common import bounded, check_cancel, run, tr, validate_crs
+from .common import bounded, carry_style, check_cancel, run, tr, validate_crs
 
 
 def normalize_longitude(value):
@@ -150,9 +150,4 @@ def cut_layer(layer, mask, target_crs, context, feedback):
         result = run('native:reprojectlayer', {'INPUT': result, 'TARGET_CRS': target_crs},
                      context, feedback)
     result.setName(layer.name() + ' Projection Tool')
-    if layer.renderer():
-        result.setRenderer(layer.renderer().clone())
-    if layer.labeling():
-        result.setLabeling(layer.labeling().clone())
-        result.setLabelsEnabled(layer.labelsEnabled())
-    return result
+    return carry_style(layer, result)

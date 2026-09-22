@@ -1,4 +1,4 @@
-# Eurekarto Projection Tools — 1.0.4
+# Eurekarto Projection Tools — 1.1.0
 
 © 2026 Blanche Lambert / Eurêkarto  
 Created by Blanche Lambert for Eurêkarto in 2026.  
@@ -8,9 +8,9 @@ Source and issues: https://github.com/eurekarto/Eurekarto-Projection-Tools
 
 ## Installation / Installation
 
-**Français** — Dans QGIS 3.40 LTR ou QGIS 4 : **Extensions → Installer/Gérer les extensions → Installer depuis un ZIP**. Sélectionnez `eurekarto_projection_tools-1_0_4.zip`, puis activez l’extension. Les deux outils apparaissent dans le menu **Extensions → Eurekarto Projection Tools** et dans la barre d’outils des extensions. Aucun paquet Python supplémentaire n’est nécessaire. Les algorithmes natifs de QGIS doivent être disponibles (extension Traitements activée).
+**Français** — Dans QGIS 3.40 LTR ou QGIS 4 : **Extensions → Installer/Gérer les extensions → Installer depuis un ZIP**. Sélectionnez `eurekarto_projection_tools-1_1_0.zip`, puis activez l’extension. Les deux outils apparaissent dans le menu **Extensions → Eurekarto Projection Tools** et dans la barre d’outils des extensions. Aucun paquet Python supplémentaire n’est nécessaire. Les algorithmes natifs de QGIS doivent être disponibles (extension Traitements activée).
 
-**English** — In QGIS 3.40 LTR or QGIS 4, use **Plugins → Manage and Install Plugins → Install from ZIP**, select `eurekarto_projection_tools-1_0_4.zip`, then enable the plugin. Both tools are available under **Plugins → Eurekarto Projection Tools** and in the plugins toolbar. No additional Python packages are required. Native QGIS algorithms must be available (Processing enabled).
+**English** — In QGIS 3.40 LTR or QGIS 4, use **Plugins → Manage and Install Plugins → Install from ZIP**, select `eurekarto_projection_tools-1_1_0.zip`, then enable the plugin. Both tools are available under **Plugins → Eurekarto Projection Tools** and in the plugins toolbar. No additional Python packages are required. Native QGIS algorithms must be available (Processing enabled).
 
 The ZIP contains exactly one root folder, `eurekarto_projection_tools`. For manual installation, copy that folder into the active QGIS profile's `python/plugins` directory and restart QGIS. The package supports installation on QGIS 3.40–3.x and QGIS 4.x. Runtime regression tests were run with QGIS 3.40.5; a QGIS 4 runtime was not available, so full execution on QGIS 4 remains to be verified.
 
@@ -34,6 +34,47 @@ This removes a narrow strip; it is not a lossless split. Features entirely insid
 
 The optional display mask crosses the projection seam by design; in some projections its display may be distorted. It is a diagnostic layer, not a projection-domain outline. Use Projection Outline for that purpose.
 
+## Quel outil pour quelle projection ?
+
+Le tableau ci-dessous est **mesuré**, pas supposé : chaque ligne vient d'un essai avec PROJ, en projetant une grille de 2° et en comptant les mailles déchirées.
+
+| Projection | Famille | Outil à utiliser | Ce que trouve la détection |
+|---|---|---|---|
+| Mercator, Web Mercator | cylindrique | **Découpe à l'antiméridien** | le méridien opposé, 2,7 % du globe |
+| Robinson, Equal Earth, Mollweide, Winkel-Tripel | pseudo-cylindrique | **Découpe à l'antiméridien** | le méridien opposé, 0,6 à 1 % |
+| Lambert conique conforme, Albers | conique | **Découpe à l'antiméridien** | le méridien opposé et la rangée polaire, 0,5 à 1 % |
+| Cassini, Mercator transverse, UTM | transverse | **Découpe automatique** | la moitié lointaine de l'équateur, 0,5 à 1,4 % |
+| Goode homolosine et autres interrompues | interrompue | **Découpe automatique** | plusieurs lignes à la fois, 1,5 % |
+| Orthographique | azimutale | **Découpe à l'horizon**, rayon 90° | l'hémisphère invisible, 51 % |
+| Perspective verticale | azimutale | **Découpe à l'horizon**, rayon selon l'altitude | — |
+| Gnomonique | azimutale | **Découpe à l'horizon**, rayon inférieur à 90° | — |
+| LAEA, stéréographique | azimutale | **Découpe à l'antiméridien** ou **automatique** | l'antipode du centre, moins de 1 % |
+| Azimutale équidistante | azimutale | aucun outil nécessaire | aucune déchirure : la carte reste continue |
+
+**Comment choisir, en une phrase.** Si la projection est en aspect normal et que son méridien central se lit dans le SCR, la *Découpe à l'antiméridien* coupe au bon endroit et cinq fois plus finement. Sinon, la *Découpe automatique*. Et si la projection ne montre qu'une partie du globe, la *Découpe à l'horizon*.
+
+## Auto Cutter / Découpe automatique
+
+Projette deux grilles décalées d'une demi-maille et compare **chaque maille à ses voisines immédiates** : une maille dont un côté explose par rapport aux siennes est posée sur une déchirure. La comparaison est locale à dessein — face à la médiane mondiale, l'hémisphère étiré d'une conique passerait pour une déchirure et serait découpé à tort. Les deux grilles sont nécessaires parce qu'une déchirure tombant pile sur les lignes de l'une n'est enjambée par aucune de ses mailles.
+
+Réglages : le **pas de grille**, qui fixe aussi la largeur de la coupe, et la **sensibilité**, exprimée en multiples de l'échelle locale, 20 par défaut.
+
+Ses limites, mesurées :
+
+- La coupe fait la largeur d'une maille, 1° par défaut, contre 0,2° pour l'outil exact.
+- Une déchirure **petite devant l'échelle locale** échappe à la détection. C'est le cas près des pôles d'une projection en aspect normal, où la carte se resserre : à 88° de latitude en Mollweide, la déchirure ne vaut plus que deux fois la taille des mailles voisines. Baisser la sensibilité à 10 ou 5 rattrape une partie de ces cas.
+- Sur une orthographique, la détection signale tout l'hémisphère invisible. Cela fonctionne, mais la *Découpe à l'horizon* le fait exactement et plus vite.
+
+## Horizon Cutter / Découpe à l'horizon
+
+Ne garde que la calotte que la projection peut montrer : le cercle situé à un rayon angulaire donné du centre de la projection, 90° pour une orthographique. Le centre est lu dans le SCR du projet (`+lat_0`, `+lon_0`) et reste modifiable à la main.
+
+La calotte est construite à partir des formules sphériques, en traitant les trois cas qui font trébucher : une calotte contenant un pôle, qui se referme le long du bord de la carte ; une calotte à cheval sur l'antiméridien, scindée en deux ; et une calotte plus grande qu'un hémisphère. Les tests vérifient que sa surface correspond à celle qu'impose son rayon, à 2 % près, dans chacun de ces cas.
+
+La limite est ramenée de 0,01° en deçà de l'horizon : posé exactement dessus, un point est souvent refusé par la projection ou renvoyé à l'infini.
+
+**Antériorité.** L'extension [ClipToHemisphere](https://github.com/jdugge/ClipToHemisphere) de Johannes Duguè résout le même problème pour l'hémisphère, et le fait bien. Le code n'en est pas repris : la géométrie est écrite depuis les formules. Les différences : le centre est lu automatiquement dans le SCR, le rayon est réglable au-delà du demi-globe, toutes les couches du projet peuvent être traitées d'un coup, et la couche d'entrée n'a pas besoin d'être déjà en EPSG:4326.
+
 ## Projection Outline
 
 Choose **Contour - Line** or **Contour - Polygon**. The method is a grid transformed cell by cell, then dissolved:
@@ -46,6 +87,10 @@ Choose **Contour - Line** or **Contour - Polygon**. The method is a grid transfo
 The default maximum edge is **500,000 metres**, converted to the projected CRS's units. A geographic project uses **5 degrees**. The dialog explicitly shows the project CRS units. Step range: `0.25°` to `5°`. Smaller steps create more cells and take longer. The threshold and step must be adjusted together: an overly low threshold drops valid cells; an overly high threshold can bridge an interruption. The produced outline is an **approximation**, not an analytic boundary or the CRS's formal area of use. It can contain holes or small gaps. The method supports interrupted projections such as **World_Goode_Homolosine_Ocean (ESRI:54053)** but no fixed parameter pair guarantees all projection domains. Mercator and other unbounded projections are necessarily limited by the grid and threshold.
 
 Outputs are named `Contour - Line` or `Contour - Polygon` and placed in **New layers**. Polygon output is initially styled with a transparent interior.
+
+## Style des couches
+
+Chaque couche découpée reprend le **rendu et l'étiquetage** de la couche d'origine : les trois outils de découpe passent par la même fonction, et un test vérifie qu'aucun chemin ne l'oublie.
 
 ## Temporary results / Résultats temporaires
 
@@ -94,13 +139,14 @@ The implementation follows the [QGIS 3.40 plugin structure](https://docs.qgis.or
 
 ## Checks run on this package
 
-- **Unit tests** — 31 tests, three of them replaying a conic projection centred on Europe with PROJ when `shapely` and `pyproj` are installed — reprojecting vertex by vertex, without densifying, as QGIS does — covering longitude normalisation, central meridian detection (`+lon_0`, UTM zone, geographic CRS, shifted prime meridian, unreadable projection), the antipodal band and its wrap at ±180°, mask latitudes, parameter bounds, and grid cell rejection. They run without QGIS, on minimal stand-ins: `python3 test_projection_tools.py`.
+- **Unit tests** — 56 tests, three of them replaying a conic projection centred on Europe with PROJ when `shapely` and `pyproj` are installed — reprojecting vertex by vertex, without densifying, as QGIS does — covering longitude normalisation, central meridian detection (`+lon_0`, UTM zone, geographic CRS, shifted prime meridian, unreadable projection), the antipodal band and its wrap at ±180°, mask latitudes, parameter bounds, and grid cell rejection. They run without QGIS, on minimal stand-ins: `python3 test_projection_tools.py`.
 - **Static analysis** — `pyflakes` and `flake8` (lines ≤ 100 characters, complexity ≤ 12) report nothing.
 - **Translations** — 49 strings, every displayed label present in both catalogs, none unused.
 - **Not verified** — execution inside QGIS 4, and any behaviour depending on native algorithms. Test on a real project before distribution.
 
 ## Changelog
 
+- **1.1.0** — Deux nouveaux outils : Découpe automatique, qui trouve les déchirures en projetant une grille, et Découpe à l'horizon, qui limite les couches à la calotte visible.
 - **1.0.4** — Polar caps densified along their parallel; 1.0.3 still let Antarctica cover the map in a conic projection.
 - **1.0.3** — The cut also removes both polar caps, so Antarctica no longer covers the map in conic or azimuthal projections centred away from the date line.
 - **1.0.2** — Contact and repository declared. The two long routines split into readable units; named constants for the polar limit, the parameter ranges and the symbol colours; the version number read from a single place; unit tests added. No change to what the tools produce.

@@ -2,11 +2,11 @@
 name=Eurekarto Projection Tools
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-version=1.0.4
+version=1.1.0
 author=Blanche Lambert, Eurêkarto
 email=contact@eurekarto.com
-description=Cut vector layers at the antipodal meridian and build projection outlines.
-about=Created by Blanche Lambert for Eurêkarto in 2026. Includes Antimeridian Cutter and grid-based Projection Outline with English and French interfaces. Copyright © 2026 Blanche Lambert / Eurêkarto. GNU GPL v2 or later.
+description=Cut vector layers where a projection tears, clip them to its horizon, and build projection outlines.
+about=Created by Blanche Lambert for Eurêkarto in 2026. Includes Antimeridian Cutter, Auto Cutter, Horizon Cutter and grid-based Projection Outline, with English and French interfaces. Copyright © 2026 Blanche Lambert / Eurêkarto. GNU GPL v2 or later.
 homepage=https://github.com/eurekarto/Eurekarto-Projection-Tools
 repository=https://github.com/eurekarto/Eurekarto-Projection-Tools
 tracker=https://github.com/eurekarto/Eurekarto-Projection-Tools/issues
@@ -16,8 +16,9 @@ experimental=False
 deprecated=False
 hasProcessingProvider=False
 license=GPL-2.0-or-later
-tags=projection,antimeridian,cartography,outline,Goode
-changelog=1.0.4 The polar caps are densified along their parallel, like the band along its meridian. In 1.0.3 each cap edge spanned 360 degrees of longitude with two vertices, which reprojection turned into a straight chord, so Antarctica could still cover the map in a conic projection.
+tags=projection,antimeridian,cartography,outline,Goode,horizon,orthographic,hemisphere
+changelog=1.1.0 Two new tools. Auto Cutter finds where a projection tears by projecting a grid, assuming no aspect, which covers transverse, oblique and interrupted projections the antimeridian tool cannot reach. Horizon Cutter keeps only the cap a projection can show, for azimuthal projections such as the orthographic.
+    1.0.4 The polar caps are densified along their parallel, like the band along its meridian. In 1.0.3 each cap edge spanned 360 degrees of longitude with two vertices, which reprojection turned into a straight chord, so Antarctica could still cover the map in a conic projection.
     1.0.3 The cut now also removes both polar caps. Left in place, a cap bridged the two sides of the band, and in a conic or azimuthal projection centred away from the date line Antarctica closed into a ring covering the whole map.
     1.0.2 Contact and repository declared; the two long routines split into readable units; named constants for the polar limit, the parameter ranges and the symbol colours; version read from a single place; 24 unit tests added.
     1.0.1 Qt 5 / Qt 6 compatibility: imports, scoped enums, dialog execution.

@@ -8,10 +8,10 @@ needs QGIS — reprojection, native algorithms, dialogs — must be tested in QG
 
 Run: python3 test_projection_tools.py
 """
-import math
 import pathlib
 import sys
 import types
+import math
 import unittest
 
 
@@ -104,6 +104,8 @@ def install_stubs():
 
 ProcessingError = install_stubs()
 from eurekarto_projection_tools import antimeridian  # noqa: E402
+from eurekarto_projection_tools import horizon  # noqa: E402
+from eurekarto_projection_tools import seams  # noqa: E402
 from eurekarto_projection_tools import common  # noqa: E402
 from eurekarto_projection_tools import outline  # noqa: E402
 
@@ -314,6 +316,218 @@ class ConicProjection(unittest.TestCase):
         caps = [Polygon(antimeridian.cap_ring(south, north, 0.5))
                 for south, north in antimeridian.polar_caps()]
         self.assertFalse(self.covers_paris(self.cut(caps)))
+
+
+class Styles(unittest.TestCase):
+    """Every cut must hand back a layer that looks like the one it came from."""
+
+    class Source:
+        def __init__(self, renderer=None, labeling=None, labels=True):
+            self._renderer, self._labeling, self._labels = renderer, labeling, labels
+
+        def renderer(self):
+            return self._renderer
+
+        def labeling(self):
+            return self._labeling
+
+        def labelsEnabled(self):
+            return self._labels
+
+    class Result:
+        def __init__(self):
+            self.renderer_set = self.labeling_set = self.labels_set = None
+
+        def setRenderer(self, renderer):
+            self.renderer_set = renderer
+
+        def setLabeling(self, labeling):
+            self.labeling_set = labeling
+
+        def setLabelsEnabled(self, enabled):
+            self.labels_set = enabled
+
+    @staticmethod
+    def clonable(name):
+        clone = types.SimpleNamespace(name=name)
+        return types.SimpleNamespace(clone=lambda: clone), clone
+
+    def test_the_symbology_is_carried_over(self):
+        renderer, clone = self.clonable('symbology')
+        result = self.Result()
+        common.carry_style(self.Source(renderer=renderer), result)
+        self.assertIs(result.renderer_set, clone)
+
+    def test_the_labelling_is_carried_over(self):
+        labeling, clone = self.clonable('labels')
+        result = self.Result()
+        common.carry_style(self.Source(labeling=labeling, labels=True), result)
+        self.assertIs(result.labeling_set, clone)
+        self.assertTrue(result.labels_set)
+
+    def test_a_layer_without_a_style_is_left_alone(self):
+        result = self.Result()
+        common.carry_style(self.Source(), result)
+        self.assertIsNone(result.renderer_set)
+        self.assertIsNone(result.labeling_set)
+
+    def test_every_cut_carries_the_style(self):
+        """The three cutting paths must all end on carry_style, not just the first."""
+        folder = pathlib.Path('eurekarto_projection_tools')
+        sources = [(folder / name).read_text(encoding='utf-8')
+                   for name in ('antimeridian.py', 'masks.py')]
+        for text in sources:
+            for block in text.split('def ')[1:]:
+                if "setName(layer.name() + ' Projection Tool')" in block:
+                    self.assertIn('carry_style', block)
+
+
+class Horizon(unittest.TestCase):
+    """The cap a projection can show, built from the centre and the radius alone."""
+
+    def test_a_point_at_zero_distance_is_the_centre(self):
+        latitude, longitude = horizon.point_at(48.0, 2.0, 0.0, 0.0)
+        self.assertAlmostEqual(latitude, 48.0, 9)
+        self.assertAlmostEqual(longitude, 2.0, 9)
+
+    def test_a_point_due_north_gains_latitude(self):
+        latitude, longitude = horizon.point_at(0.0, 0.0, 30.0, 0.0)
+        self.assertAlmostEqual(latitude, 30.0, 6)
+        self.assertAlmostEqual(longitude, 0.0, 6)
+
+    def test_a_point_due_east_of_the_equator_gains_longitude(self):
+        latitude, longitude = horizon.point_at(0.0, 10.0, 30.0, 90.0)
+        self.assertAlmostEqual(latitude, 0.0, 6)
+        self.assertAlmostEqual(longitude, 40.0, 6)
+
+    def test_a_cap_away_from_the_poles_is_one_ring(self):
+        self.assertEqual(len(horizon.cap_rings(20.0, 30.0, 40.0)), 1)
+
+    def test_a_cap_over_the_date_line_is_split_in_two(self):
+        self.assertEqual(len(horizon.cap_rings(-33.0, 151.0, 30.0)), 2)
+
+    def test_a_cap_holding_a_pole_is_closed_along_the_map_edge(self):
+        ring = horizon.cap_rings(90.0, 0.0, 90.0)[0]
+        longitudes = [longitude for longitude, _ in ring]
+        self.assertEqual((min(longitudes), max(longitudes)), (-180.0, 180.0))
+        self.assertIn(90.0, [latitude for _, latitude in ring])
+
+    def test_the_radius_stays_inside_the_horizon(self):
+        # Exactly on the horizon a projection often refuses the point.
+        ring = horizon.cap_rings(0.0, 0.0, 90.0)[0]
+        self.assertLess(max(abs(longitude) for longitude, _ in ring), 90.0)
+
+    def test_the_centre_is_read_from_the_projection(self):
+        self.assertEqual(horizon.centre_from_proj('+proj=ortho +lat_0=20 +lon_0=30 +R=6371000'),
+                         (20.0, 30.0))
+        self.assertEqual(horizon.centre_from_proj('+proj=ortho'), (0.0, 0.0))
+        self.assertEqual(horizon.centre_from_proj('+proj=ortho +lon_0=200'), (0.0, -160.0))
+
+
+class Seams(unittest.TestCase):
+    """Finding the tears by projecting a grid, with no aspect assumed."""
+
+    def test_a_cell_with_an_unplaceable_corner_has_no_length(self):
+        self.assertIsNone(seams.longest_side([(0, 0), None, (1, 1), (0, 1)]))
+
+    def test_the_longest_side_is_measured_round_the_cell(self):
+        self.assertAlmostEqual(seams.longest_side([(0, 0), (3, 0), (3, 1), (0, 1)]), 3.0, 9)
+
+    def test_a_column_straddles_the_date_line(self):
+        cells, columns, rows = seams.cell_bounds(2.0)
+        self.assertTrue(any(west < 180.0 < east for west, east, _, _ in cells))
+        self.assertEqual(columns, 181)
+
+    def test_a_cell_crossing_the_date_line_is_split_for_the_mask(self):
+        self.assertEqual(seams.split_at_date_line(179.0, 181.0),
+                         [(179.0, 180.0), (-180.0, -179.0)])
+        self.assertEqual(seams.split_at_date_line(10.0, 12.0), [(10.0, 12.0)])
+
+    def test_the_second_grid_is_shifted_by_half_a_cell(self):
+        # A tear sitting on the lines of one grid must fall inside a cell of the other.
+        first, _, _ = seams.cell_bounds(2.0, 0.0)
+        second, _, _ = seams.cell_bounds(2.0, 1.0)
+        self.assertIn(-170.0, [west for west, _, _, _ in first])
+        self.assertNotIn(-170.0, [west for west, _, _, _ in second])
+
+
+@unittest.skipUnless(GEOMETRY_LIBRARIES, 'needs shapely and pyproj')
+class SeamsWithProj(unittest.TestCase):
+    """The detector measured against real projections."""
+
+    @staticmethod
+    def projector(definition):
+        import math as arithmetic
+        transformer = Transformer.from_crs('EPSG:4326', definition, always_xy=True)
+
+        def project(points):
+            xs, ys = transformer.transform([p[0] for p in points], [p[1] for p in points])
+            return [(x, y) if arithmetic.isfinite(x) and arithmetic.isfinite(y) else None
+                    for x, y in zip(xs, ys)]
+
+        return project
+
+    def found(self, definition, step=2.0):
+        return seams.torn_cells(self.projector(definition), step=step)
+
+    def test_a_world_projection_tears_along_its_antipodal_meridian(self):
+        cells = self.found('+proj=robin +lon_0=-90 +datum=WGS84')
+        longitudes = {round((west + east) / 2) for west, east, _, _ in cells}
+        self.assertTrue(longitudes <= {90, 91}, longitudes)
+
+    def test_cassini_tears_along_the_far_half_of_the_equator(self):
+        cells = self.found('ESRI:53028')
+        latitudes = {round((south + north) / 2) for _, _, south, north in cells}
+        self.assertTrue(latitudes <= {-1, 0, 1}, latitudes)
+        # Nothing is cut within 90° of the central meridian.
+        near = [west for west, east, _, _ in cells if abs((west + east) / 2) < 88]
+        self.assertEqual(near, [])
+
+    def test_a_conic_keeps_its_stretched_hemisphere(self):
+        # A stretch is not a tear: at most a few percent of the globe may be cut.
+        cells = self.found('+proj=lcc +lat_1=35 +lat_2=65 +lon_0=10 +datum=WGS84')
+        self.assertLess(len(cells), 0.05 * 181 * 90 * 2)
+
+    def test_an_azimuthal_equidistant_has_nothing_to_cut(self):
+        self.assertEqual(self.found('+proj=aeqd +lat_0=48 +lon_0=2 +datum=WGS84'), [])
+
+    def test_an_orthographic_hides_half_the_globe(self):
+        cells = self.found('+proj=ortho +lat_0=20 +lon_0=30 +R=6371000')
+        share = len(cells) / (181 * 90 * 2)
+        self.assertGreater(share, 0.4)
+
+
+@unittest.skipUnless(GEOMETRY_LIBRARIES, 'needs shapely and pyproj')
+class HorizonArea(unittest.TestCase):
+    """The cap must cover the share of the globe its radius implies."""
+
+    @staticmethod
+    def share(latitude, longitude, radius):
+        rings = horizon.cap_rings(latitude, longitude, radius, step=1.0)
+        shape = unary_union([Polygon(ring).buffer(0) for ring in rings])
+        import random
+        generator = random.Random(3)
+        inside = 0
+        for _ in range(4000):
+            sample_latitude = math.degrees(math.asin(generator.uniform(-1, 1)))
+            sample_longitude = generator.uniform(-180, 180)
+            if shape.contains(ShapelyPoint(sample_longitude, sample_latitude)):
+                inside += 1
+        return inside / 4000
+
+    def expected(self, radius):
+        return (1 - math.cos(math.radians(radius))) / 2
+
+    def test_a_hemisphere_covers_half_the_globe(self):
+        for latitude, longitude in ((0.0, 0.0), (20.0, 30.0), (90.0, 0.0), (0.0, 180.0)):
+            self.assertAlmostEqual(self.share(latitude, longitude, 90.0),
+                                   self.expected(90.0), delta=0.02)
+
+    def test_a_smaller_cap_covers_its_share(self):
+        self.assertAlmostEqual(self.share(48.0, 2.0, 60.0), self.expected(60.0), delta=0.02)
+
+    def test_a_cap_larger_than_a_hemisphere_covers_its_share(self):
+        self.assertAlmostEqual(self.share(70.0, -40.0, 120.0), self.expected(120.0), delta=0.02)
 
 
 if __name__ == '__main__':
